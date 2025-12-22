@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Thu Hồi Tài Sản">
+    <title>Thu Hồi Tài Sản - n8n App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        const { useState, useRef } = React;
+
+        // Lucide Icons as SVG
+        const Camera = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+            </svg>
+        );
+
+        const Package = () => (
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M16.5 9.4l-9-5.19M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                <line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+        );
+
+        const Send = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="22" y1="2" x2="11" y2="13"/>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+        );
+
+        const CheckCircle = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+        );
+
+        const XCircle = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+        );
+
+        function MobileConnectorApp() {
+            const [barcode, setBarcode] = useState('');
+            const [photo, setPhoto] = useState(null);
+            const [photoPreview, setPhotoPreview] = useState(null);
+            const [webhookUrl, setWebhookUrl] = useState(localStorage.getItem('webhookUrl') || 'https://your-n8n-instance.com/webhook/thu-hoi-tai-san');
+            const [status, setStatus] = useState('');
+            const [loading, setLoading] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const handlePhotoCapture = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    setPhoto(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setPhotoPreview(reader.result);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const saveWebhookUrl = (url) => {
+                setWebhookUrl(url);
+                localStorage.setItem('webhookUrl', url);
+            };
+
+            const sendToN8n = async () => {
+                if (!barcode || !photo) {
+                    setStatus('error');
+                    setTimeout(() => setStatus(''), 3000);
+                    return;
+                }
+
+                setLoading(true);
+                
+                try {
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                        const base64Photo = reader.result;
+                        
+                        const payload = {
+                            barcode: barcode,
+                            photo: base64Photo,
+                            timestamp: new Date().toISOString(),
+                            photoName: photo.name,
+                            device: navigator.userAgent
+                        };
+
+                        const response = await fetch(webhookUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (response.ok) {
+                            setStatus('success');
+                            setBarcode('');
+                            setPhoto(null);
+                            setPhotoPreview(null);
+                        } else {
+                            setStatus('error');
+                        }
+                        
+                        setLoading(false);
+                        setTimeout(() => setStatus(''), 3000);
+                    };
+                    reader.readAsDataURL(photo);
+                    
+                } catch (error) {
+                    console.error('Error:', error);
+                    setStatus('error');
+                    setLoading(false);
+                    setTimeout(() => setStatus(''), 3000);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 pb-8">
+                    <div className="max-w-md mx-auto">
+                        {/* Header */}
+                        <div className="bg-white rounded-t-2xl shadow-lg p-6 mt-8">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="text-indigo-600"><Package /></div>
+                                <h1 className="text-2xl font-bold text-gray-800">Thu Hồi Tài Sản</h1>
+                            </div>
+                            <p className="text-sm text-gray-500">Quét mã vạch và chụp ảnh vật tư</p>
+                        </div>
+
+                        {/* Main Form */}
+                        <div className="bg-white shadow-lg p-6 space-y-6">
+                            
+                            {/* Webhook URL Config */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    🔗 Webhook URL n8n
+                                </label>
+                                <input
+                                    type="text"
+                                    value={webhookUrl}
+                                    onChange={(e) => saveWebhookUrl(e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                                    placeholder="https://your-n8n.com/webhook/..."
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Lấy URL này từ Webhook node trong n8n</p>
+                            </div>
+
+                            {/* Barcode Input */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    📱 Mã Vạch / Seri
+                                </label>
+                                <input
+                                    type="text"
+                                    value={barcode}
+                                    onChange={(e) => setBarcode(e.target.value)}
+                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-lg font-mono"
+                                    placeholder="Nhập hoặc quét mã vạch"
+                                    autoComplete="off"
+                                />
+                            </div>
+
+                            {/* Photo Capture */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    📷 Chụp Ảnh Vật Tư
+                                </label>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    onChange={handlePhotoCapture}
+                                    className="hidden"
+                                />
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+                                    type="button"
+                                >
+                                    <div className="text-indigo-600"><Camera /></div>
+                                    <span className="text-gray-700 font-medium">
+                                        {photo ? 'Chụp lại ảnh' : 'Chụp ảnh vật tư'}
+                                    </span>
+                                </button>
+                                
+                                {photoPreview && (
+                                    <div className="mt-3 rounded-lg overflow-hidden border-2 border-gray-200">
+                                        <img src={photoPreview} alt="Preview" className="w-full" />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Submit Button */}
+                            <button
+                                onClick={sendToN8n}
+                                disabled={loading || !barcode || !photo}
+                                className={`w-full py-4 rounded-lg font-semibold text-white flex items-center justify-center gap-2 transition-all ${
+                                    loading || !barcode || !photo
+                                        ? 'bg-gray-400 cursor-not-allowed'
+                                        : 'bg-indigo-600 hover:bg-indigo-700 shadow-lg hover:shadow-xl'
+                                }`}
+                                type="button"
+                            >
+                                {loading ? (
+                                    <>
+                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        Đang gửi...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Send />
+                                        Gửi dữ liệu lên n8n
+                                    </>
+                                )}
+                            </button>
+
+                            {/* Status Messages */}
+                            {status === 'success' && (
+                                <div className="flex items-center gap-2 p-4 bg-green-50 border border-green-200 rounded-lg">
+                                    <div className="text-green-600"><CheckCircle /></div>
+                                    <span className="text-green-800 font-medium">Gửi thành công!</span>
+                                </div>
+                            )}
+                            
+                            {status === 'error' && (
+                                <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-lg">
+                                    <div className="text-red-600"><XCircle /></div>
+                                    <span className="text-red-800 font-medium">Lỗi! Kiểm tra mã vạch, ảnh và URL.</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Instructions */}
+                        <div className="bg-white rounded-b-2xl shadow-lg p-6 mb-8">
+                            <h3 className="font-semibold text-gray-800 mb-3">📋 Hướng dẫn sử dụng:</h3>
+                            <ol className="text-sm text-gray-600 space-y-2 list-decimal list-inside">
+                                <li>Nhập Webhook URL từ n8n workflow của bạn</li>
+                                <li>Nhập hoặc quét mã vạch/seri của vật tư</li>
+                                <li>Chụp ảnh vật tư cần thu hồi</li>
+                                <li>Nhấn "Gửi dữ liệu lên n8n" để xử lý</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<MobileConnectorApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
