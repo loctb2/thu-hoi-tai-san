@@ -101,11 +101,17 @@ function App() {
         type: "LiveStream",
         target: document.querySelector("#scanner"),
         constraints: {
-          facingMode: "environment"
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         }
       },
+      locator: {
+        halfSample: false
+      }
       decoder: {
         readers: [
+          "qr_reader",
           "code_128_reader",
           "ean_reader",
           "ean_8_reader"
@@ -121,6 +127,10 @@ function App() {
 
     Quagga.onDetected(res => {
       const code = res.codeResult.code;
+      const type = res.codeResult.format; // qr_code / code_128 / ean...
+
+      console.log("Detected:", type, code);
+      
       setBarcode(code);
       Quagga.stop();
     });
@@ -248,3 +258,4 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 
 </body>
 </html>
+
