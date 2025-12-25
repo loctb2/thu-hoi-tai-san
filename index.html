@@ -61,40 +61,58 @@
       };
 
       /* ================= BARCODE SCAN ================= */
-      const startScan = () => {
-        setScanning(true);
+     const startScan = async () => {
+  try {
+    // 1️⃣ Xin quyền camera trước
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }
+    });
 
-        Quagga.init(
-          {
-            inputStream: {
-              type: 'LiveStream',
-              target: document.querySelector('#scanner'),
-              constraints: {
-                facingMode: 'environment',
-              },
-            },
-            decoder: {
-              readers: [
-                'ean_reader',
-                'ean_8_reader',
-                'code_128_reader',
-                'code_39_reader',
-                'upc_reader',
-              ],
-            },
-          },
-          (err) => {
-            if (err) {
-              console.error(err);
-              setScanning(false);
-              return;
-            }
-            Quagga.start();
-          }
-        );
+    // Tắt stream test
+    stream.getTracks().forEach(track => track.stop());
 
-        Quagga.onDetected(onBarcodeDetected);
-      };
+    // 2️⃣ Bật UI scan
+    setScanning(true);
+
+    // 3️⃣ Init Quagga
+    Quagga.init({
+      inputStream: {
+        type: "LiveStream",
+        target: document.querySelector("#scanner"),
+        constraints: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      },
+      decoder: {
+        readers: [
+          "ean_reader",
+          "ean_8_reader",
+          "code_128_reader",
+          "code_39_reader",
+          "upc_reader"
+        ]
+      },
+      locate: true
+    }, (err) => {
+      if (err) {
+        alert("Không mở được camera");
+        console.error(err);
+        setScanning(false);
+        return;
+      }
+      Quagga.start();
+    });
+
+    Quagga.onDetected(onBarcodeDetected);
+
+  } catch (err) {
+    alert("Trình duyệt không cho phép camera");
+    console.error(err);
+  }
+};
+
 
       const onBarcodeDetected = (result) => {
         const code = result.codeResult.code;
@@ -275,3 +293,4 @@
   </script>
 </body>
 </html>
+
