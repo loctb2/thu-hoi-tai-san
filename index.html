@@ -1,76 +1,71 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thu Hồi Tài Sản</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Thu Hồi Tài Sản</title>
 
-  <!-- Tailwind -->
-  <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.tailwindcss.com"></script>
 
-  <style>
-    body { user-select: none; }
+<style>
+body { user-select: none; }
 
-    #scanner-wrapper {
-      position: relative;
-      width: 100%;
-      height: 55vh;
-      background: black;
-      overflow: hidden;
-      border-radius: 12px;
-    }
+#scanner-wrapper {
+  position: relative;
+  width: 100%;
+  height: 55vh;
+  background: black;
+  overflow: hidden;
+  border-radius: 12px;
+}
 
-    #scanner video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+#scanner video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
-    .overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(0,0,0,0.4);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      pointer-events: none;
-    }
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
 
-    .scan-area {
-      position: relative;
-      width: 80%;
-      max-width: 320px;
-      height: 160px;
-      border: 2px solid #00ffcc;
-      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
-      border-radius: 12px;
-    }
+.scan-area {
+  width: 80%;
+  max-width: 320px;
+  height: 160px;
+  border: 2px solid #00ffcc;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.45);
+  border-radius: 12px;
+  position: relative;
+}
 
-    .scan-line {
-      position: absolute;
-      left: 0;
-      width: 100%;
-      height: 2px;
-      background: red;
-      animation: scan 2s linear infinite;
-    }
+.scan-line {
+  position: absolute;
+  height: 2px;
+  width: 100%;
+  background: red;
+  animation: scan 2s linear infinite;
+}
 
-    @keyframes scan {
-      from { top: 0; }
-      to { top: calc(100% - 2px); }
-    }
-  </style>
+@keyframes scan {
+  from { top: 0; }
+  to { top: calc(100% - 2px); }
+}
+</style>
 </head>
 
 <body class="bg-gray-100">
 <div id="root"></div>
 
-<!-- React -->
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-<!-- Quagga fallback -->
 <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
 
 <script type="text/babel">
@@ -78,142 +73,64 @@ const { useState, useEffect, useRef } = React;
 
 function App() {
   const [barcode, setBarcode] = useState("");
-  const [photo, setPhoto] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
-  const [webhookUrl, setWebhookUrl] = useState(
-    localStorage.getItem("webhookUrl") || ""
-  );
   const [status, setStatus] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState(localStorage.getItem("webhookUrl") || "");
+  const scannerRef = useRef(null);
 
-  const fileInputRef = useRef(null);
-  const supportsBarcodeDetector = "BarcodeDetector" in window;
-
-  /* ===== CAMERA + SCAN ===== */
   useEffect(() => {
     let stream;
-    let detector;
     let rafId;
-    const scannerEl = document.getElementById("scanner");
 
     const stopAll = () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (stream) stream.getTracks().forEach(t => t.stop());
       if (window.Quagga) try { Quagga.stop(); } catch {}
-      if (scannerEl) scannerEl.innerHTML = "";
     };
 
-    const startNative = async () => {
-      detector = new BarcodeDetector({
-        formats: ["qr_code", "code_128", "ean_13", "ean_8"]
-      });
+    const start = async () => {
+      try {
+        if ("BarcodeDetector" in window) {
+          const detector = new window.BarcodeDetector({ formats: ["qr_code","code_128","ean_13"] });
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
 
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      });
+          const video = document.createElement("video");
+          video.setAttribute("playsinline", true);
+          video.srcObject = stream;
+          await video.play();
+          scannerRef.current.appendChild(video);
 
-      const video = document.createElement("video");
-      video.setAttribute("playsinline", true);
-      video.srcObject = stream;
-      await video.play();
-      scannerEl.appendChild(video);
+          const scan = async () => {
+            const codes = await detector.detect(video);
+            if (codes.length) {
+              setBarcode(codes[0].rawValue);
+              stopAll();
+              return;
+            }
+            rafId = requestAnimationFrame(scan);
+          };
+          scan();
+        } else {
+          Quagga.init({
+            inputStream: { type: "LiveStream", target: scannerRef.current },
+            decoder: { readers: ["qr_reader","code_128_reader","ean_reader"] }
+          }, err => { if (!err) Quagga.start(); });
 
-      const scan = async () => {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-          const codes = await detector.detect(video);
-          if (codes.length) {
-            setBarcode(codes[0].rawValue);
+          Quagga.onDetected(res => {
+            setBarcode(res.codeResult.code);
             stopAll();
-            return;
-          }
+          });
         }
-        rafId = requestAnimationFrame(scan);
-      };
-      scan();
+      } catch (e) {
+        console.error("Camera error:", e);
+      }
     };
 
-    const startQuagga = () => {
-      Quagga.init({
-        inputStream: {
-          type: "LiveStream",
-          target: scannerEl,
-          constraints: {
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        },
-        locator: { halfSample: false },
-        decoder: {
-          readers: [
-            "qr_reader",
-            "code_128_reader",
-            "ean_reader",
-            "ean_8_reader"
-          ]
-        }
-      }, err => {
-        if (!err) Quagga.start();
-      });
-
-      Quagga.onDetected(res => {
-        setBarcode(res.codeResult.code);
-        stopAll();
-      });
-    };
-
-    supportsBarcodeDetector ? startNative() : startQuagga();
+    start();
     return stopAll;
   }, []);
 
-  /* ===== PHOTO ===== */
-  const handlePhoto = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setPhoto(file);
-    const r = new FileReader();
-    r.onload = () => setPhotoPreview(r.result);
-    r.readAsDataURL(file);
-  };
-
-  /* ===== SEND N8N ===== */
-  const sendToN8n = async () => {
-    if (!barcode && !photo) {
-      alert("Cần QR/Barcode hoặc Ảnh");
-      return;
-    }
-
-    let photoBase64 = null;
-    if (photo) {
-      photoBase64 = await new Promise(res => {
-        const r = new FileReader();
-        r.onload = () => res(r.result);
-        r.readAsDataURL(photo);
-      });
-    }
-
-    const payload = {
-      barcode: barcode || null,
-      photo: photoBase64,
-      timestamp: new Date().toISOString(),
-      device: navigator.userAgent
-    };
-
-    const r = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    setStatus(r.ok ? "success" : "error");
-    setTimeout(() => setStatus(""), 3000);
-  };
-
   return (
-    <div className="max-w-md mx-auto p-4 space-y-4">
+    <div className="max-w-md mx-auto p-4 space-y-3">
       <h1 className="text-xl font-bold text-center">📦 Thu Hồi Tài Sản</h1>
 
       <input
@@ -234,7 +151,7 @@ function App() {
       />
 
       <div id="scanner-wrapper">
-        <div id="scanner"></div>
+        <div ref={scannerRef} id="scanner"></div>
         <div className="overlay">
           <div className="scan-area">
             <div className="scan-line"></div>
@@ -242,33 +159,7 @@ function App() {
         </div>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handlePhoto}
-      />
-
-      <button
-        onClick={() => fileInputRef.current.click()}
-        className="w-full bg-gray-200 p-2 rounded"
-      >
-        📷 Chụp ảnh vật tư
-      </button>
-
-      {photoPreview && <img src={photoPreview} className="rounded border" />}
-
-      <button
-        onClick={sendToN8n}
-        className="w-full bg-indigo-600 text-white p-3 rounded font-bold"
-      >
-        🚀 Gửi lên n8n
-      </button>
-
-      {status === "success" && <p className="text-green-600">✔ Gửi thành công</p>}
-      {status === "error" && <p className="text-red-600">✖ Gửi lỗi</p>}
+      {status && <p>{status}</p>}
     </div>
   );
 }
