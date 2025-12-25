@@ -8,18 +8,13 @@
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Disable select -->
   <style>
-    body {
-      -webkit-user-select: none;
-      user-select: none;
-    }
+    body { user-select: none; }
 
-    /* ===== SCANNER STYLE ===== */
     #scanner-wrapper {
       position: relative;
       width: 100%;
-      height: 60vh;
+      height: 55vh;
       background: black;
       overflow: hidden;
       border-radius: 12px;
@@ -68,7 +63,6 @@
 </head>
 
 <body class="bg-gray-100">
-
 <div id="root"></div>
 
 <!-- React -->
@@ -76,7 +70,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-<!-- QuaggaJS -->
+<!-- Quagga fallback -->
 <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
 
 <script type="text/babel">
@@ -90,54 +84,89 @@ function App() {
     localStorage.getItem("webhookUrl") || ""
   );
   const [status, setStatus] = useState("");
+
   const fileInputRef = useRef(null);
+  const supportsBarcodeDetector = "BarcodeDetector" in window;
 
-  /* ===== INIT CAMERA ===== */
+  /* ===== CAMERA + SCAN ===== */
   useEffect(() => {
-    if (!window.Quagga) return;
+    let stream;
+    let detector;
+    let rafId;
+    const scannerEl = document.getElementById("scanner");
 
-    Quagga.init({
-      inputStream: {
-        type: "LiveStream",
-        target: document.querySelector("#scanner"),
-        constraints: {
+    const stopAll = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (window.Quagga) try { Quagga.stop(); } catch {}
+      if (scannerEl) scannerEl.innerHTML = "";
+    };
+
+    const startNative = async () => {
+      detector = new BarcodeDetector({
+        formats: ["qr_code", "code_128", "ean_13", "ean_8"]
+      });
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
           facingMode: "environment",
           width: { ideal: 1280 },
           height: { ideal: 720 }
         }
-      },
-      locator: {
-        halfSample: false
-      }
-      decoder: {
-        readers: [
-          "qr_reader",
-          "code_128_reader",
-          "ean_reader",
-          "ean_8_reader"
-        ]
-      }
-    }, err => {
-      if (err) {
-        console.error(err);
-        return;
-      }
-      Quagga.start();
-    });
+      });
 
-    Quagga.onDetected(res => {
-      const code = res.codeResult.code;
-      const type = res.codeResult.format; // qr_code / code_128 / ean...
+      const video = document.createElement("video");
+      video.setAttribute("playsinline", true);
+      video.srcObject = stream;
+      await video.play();
+      scannerEl.appendChild(video);
 
-      console.log("Detected:", type, code);
-      
-      setBarcode(code);
-      Quagga.stop();
-    });
-
-    return () => {
-      try { Quagga.stop(); } catch(e){}
+      const scan = async () => {
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          const codes = await detector.detect(video);
+          if (codes.length) {
+            setBarcode(codes[0].rawValue);
+            stopAll();
+            return;
+          }
+        }
+        rafId = requestAnimationFrame(scan);
+      };
+      scan();
     };
+
+    const startQuagga = () => {
+      Quagga.init({
+        inputStream: {
+          type: "LiveStream",
+          target: scannerEl,
+          constraints: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        },
+        locator: { halfSample: false },
+        decoder: {
+          readers: [
+            "qr_reader",
+            "code_128_reader",
+            "ean_reader",
+            "ean_8_reader"
+          ]
+        }
+      }, err => {
+        if (!err) Quagga.start();
+      });
+
+      Quagga.onDetected(res => {
+        setBarcode(res.codeResult.code);
+        stopAll();
+      });
+    };
+
+    supportsBarcodeDetector ? startNative() : startQuagga();
+    return stopAll;
   }, []);
 
   /* ===== PHOTO ===== */
@@ -145,16 +174,15 @@ function App() {
     const file = e.target.files[0];
     if (!file) return;
     setPhoto(file);
-
-    const reader = new FileReader();
-    reader.onload = () => setPhotoPreview(reader.result);
-    reader.readAsDataURL(file);
+    const r = new FileReader();
+    r.onload = () => setPhotoPreview(r.result);
+    r.readAsDataURL(file);
   };
 
-  /* ===== SEND TO N8N ===== */
+  /* ===== SEND N8N ===== */
   const sendToN8n = async () => {
     if (!barcode && !photo) {
-      alert("Cần ít nhất BARCODE hoặc ẢNH");
+      alert("Cần QR/Barcode hoặc Ảnh");
       return;
     }
 
@@ -186,10 +214,8 @@ function App() {
 
   return (
     <div className="max-w-md mx-auto p-4 space-y-4">
-
       <h1 className="text-xl font-bold text-center">📦 Thu Hồi Tài Sản</h1>
 
-      {/* Webhook */}
       <input
         className="w-full p-2 border rounded"
         placeholder="Webhook URL n8n"
@@ -200,15 +226,13 @@ function App() {
         }}
       />
 
-      {/* Barcode */}
       <input
         className="w-full p-2 border rounded"
-        placeholder="Barcode (tự điền khi quét)"
+        placeholder="QR / Barcode"
         value={barcode}
         onChange={e => setBarcode(e.target.value)}
       />
 
-      {/* Scanner */}
       <div id="scanner-wrapper">
         <div id="scanner"></div>
         <div className="overlay">
@@ -218,12 +242,11 @@ function App() {
         </div>
       </div>
 
-      {/* Photo */}
       <input
+        ref={fileInputRef}
         type="file"
         accept="image/*"
         capture="environment"
-        ref={fileInputRef}
         className="hidden"
         onChange={handlePhoto}
       />
@@ -235,11 +258,8 @@ function App() {
         📷 Chụp ảnh vật tư
       </button>
 
-      {photoPreview && (
-        <img src={photoPreview} className="rounded border" />
-      )}
+      {photoPreview && <img src={photoPreview} className="rounded border" />}
 
-      {/* Submit */}
       <button
         onClick={sendToN8n}
         className="w-full bg-indigo-600 text-white p-3 rounded font-bold"
@@ -255,7 +275,5 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
-
 </body>
 </html>
-
