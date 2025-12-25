@@ -8,6 +8,8 @@
     <meta name="apple-mobile-web-app-title" content="Thu Hồi Tài Sản">
     <title>Thu Hồi Tài Sản - n8n App</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+
     <style>
         body {
             -webkit-touch-callout: none;
@@ -68,6 +70,7 @@
             const [barcode, setBarcode] = useState('');
             const [photo, setPhoto] = useState(null);
             const [photoPreview, setPhotoPreview] = useState(null);
+	    const [scanning, setScanning] = useState(false);
             const [webhookUrl, setWebhookUrl] = useState(localStorage.getItem('webhookUrl') || 'https://your-n8n-instance.com/webhook/thu-hoi-tai-san');
             const [status, setStatus] = useState('');
             const [loading, setLoading] = useState(false);
@@ -141,6 +144,49 @@
                     setTimeout(() => setStatus(''), 3000);
                 }
             };
+	// ===== BARCODE SCANNER =====
+const startScan = () => {
+    setScanning(true);
+
+    Quagga.init({
+        inputStream: {
+            type: "LiveStream",
+            target: document.querySelector('#scanner'),
+            constraints: { facingMode: "environment" }
+        },
+        decoder: {
+            readers: [
+                "ean_reader",
+                "ean_8_reader",
+                "code_128_reader",
+                "code_39_reader",
+                "upc_reader"
+            ]
+        }
+    }, (err) => {
+        if (err) {
+            console.error(err);
+            setScanning(false);
+            return;
+        }
+        Quagga.start();
+    });
+
+    Quagga.onDetected(onBarcodeDetected);
+};
+
+const onBarcodeDetected = (result) => {
+    const code = result.codeResult.code;
+    setBarcode(code);
+    stopScan();
+};
+
+const stopScan = () => {
+    Quagga.stop();
+    Quagga.offDetected(onBarcodeDetected);
+    setScanning(false);
+};
+
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 pb-8">
@@ -173,19 +219,33 @@
                             </div>
 
                             {/* Barcode Input */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    📱 Mã Vạch / Seri
-                                </label>
-                                <input
-                                    type="text"
-                                    value={barcode}
-                                    onChange={(e) => setBarcode(e.target.value)}
-                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-lg font-mono"
-                                    placeholder="Nhập hoặc quét mã vạch"
-                                    autoComplete="off"
-                                />
-                            </div>
+                           
+<div>
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+        📱 Mã Vạch / Seri
+    </label>
+
+    <div className="flex gap-2">
+        <input
+            type="text"
+            value={barcode}
+            onChange={(e) => setBarcode(e.target.value)}
+            className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-lg font-mono"
+            placeholder="Nhập hoặc quét mã vạch"
+            autoComplete="off"
+        />
+
+        <button
+            type="button"
+            onClick={startScan}
+            className="px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+        >
+            Quét
+        </button>
+    </div>
+</div>
+
+                               
 
                             {/* Photo Capture */}
                             <div>
@@ -219,6 +279,19 @@
                             </div>
 
                             {/* Submit Button */}
+{scanning && (
+    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col">
+        <div id="scanner" className="flex-1"></div>
+        <button
+            onClick={stopScan}
+            className="bg-red-600 text-white py-3"
+            type="button"
+        >
+            Đóng camera
+        </button>
+    </div>
+)}
+
                             <button
                                 onClick={sendToN8n}
                                 disabled={loading || !barcode || !photo}
