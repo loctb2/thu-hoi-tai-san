@@ -112,6 +112,20 @@
     console.error(err);
   }
 };
+      // overplay camera
+    <div class="scanner-container">
+    
+    <div id="interactive" class="viewport">
+        <video autoplay="true" preload="auto" muted="true" playsinline="true"></video>
+    </div>
+
+    <div class="scan-overlay">
+        <div class="scan-box">
+            <div class="scan-line"></div>
+        </div>
+    </div>
+
+</div>
 
 
       const onBarcodeDetected = (result) => {
@@ -293,6 +307,7 @@
   </script>
 </body>
 </html>
+
 
 
 
