@@ -73,7 +73,20 @@
 
     // 2️⃣ Bật UI scan
     setScanning(true);
+    // overplay camera
+    <div class="scanner-container">
+    
+    <div id="interactive" class="viewport">
+        <video autoplay="true" preload="auto" muted="true" playsinline="true"></video>
+    </div>
 
+    <div class="scan-overlay">
+        <div class="scan-box">
+            <div class="scan-line"></div>
+        </div>
+    </div>
+
+</div>
     // 3️⃣ Init Quagga
     Quagga.init({
       inputStream: {
@@ -293,4 +306,5 @@
   </script>
 </body>
 </html>
+
 
