@@ -456,6 +456,19 @@
                     return;
                 }
 
+                // Check if using localhost
+                if (webhookUrl.includes("localhost") || webhookUrl.includes("127.0.0.1")) {
+                    alert("❌ Lỗi: Không thể kết nối đến localhost từ điện thoại!\n\n" +
+                          "Giải pháp:\n" +
+                          "1. Dùng IP máy tính (VD: http://192.168.1.100:5678/webhook/...)\n" +
+                          "2. Hoặc host n8n online và dùng HTTPS URL\n" +
+                          "3. Hoặc dùng ngrok để tạo tunnel\n\n" +
+                          "Cách lấy IP máy tính:\n" +
+                          "- Windows: cmd → ipconfig\n" +
+                          "- Mac/Linux: terminal → ifconfig");
+                    return;
+                }
+
                 setLoading(true);
                 setStatus("");
 
@@ -478,13 +491,22 @@
                         totalScanned: scannedList.length
                     };
 
+                    console.log("Sending to:", webhookUrl);
+                    console.log("Payload size:", JSON.stringify(payload).length, "bytes");
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
                     const response = await fetch(webhookUrl, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
                         },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
                     });
+
+                    clearTimeout(timeoutId);
 
                     if (response.ok) {
                         setStatus("success");
@@ -496,12 +518,38 @@
                         playBeep();
                     } else {
                         setStatus("error");
-                        alert(`Lỗi: ${response.status} ${response.statusText}`);
+                        const errorText = await response.text();
+                        alert(`❌ Lỗi từ server:\n\nStatus: ${response.status} ${response.statusText}\n\nChi tiết: ${errorText.substring(0, 200)}`);
                     }
                 } catch (error) {
                     console.error("Send error:", error);
                     setStatus("error");
-                    alert("❌ Lỗi kết nối! Kiểm tra URL webhook và kết nối mạng.");
+                    
+                    let errorMsg = "❌ Lỗi kết nối!\n\n";
+                    
+                    if (error.name === 'AbortError') {
+                        errorMsg += "⏱️ Timeout: Mất quá 30 giây để kết nối.\n\n";
+                        errorMsg += "Giải pháp:\n";
+                        errorMsg += "- Kiểm tra kết nối internet\n";
+                        errorMsg += "- Kiểm tra n8n có đang chạy không\n";
+                        errorMsg += "- Thử lại sau";
+                    } else if (error.message.includes("Failed to fetch") || error.message.includes("Network request failed")) {
+                        errorMsg += "🌐 Không thể kết nối đến server.\n\n";
+                        errorMsg += "Nguyên nhân có thể:\n";
+                        errorMsg += "1. URL webhook sai\n";
+                        errorMsg += "2. n8n chưa chạy hoặc không accessible\n";
+                        errorMsg += "3. Điện thoại và máy tính không cùng mạng WiFi\n";
+                        errorMsg += "4. Firewall chặn kết nối\n\n";
+                        errorMsg += "URL hiện tại:\n" + webhookUrl + "\n\n";
+                        errorMsg += "Giải pháp:\n";
+                        errorMsg += "- Kiểm tra n8n có chạy không\n";
+                        errorMsg += "- Kiểm tra URL có đúng không\n";
+                        errorMsg += "- Thử ping từ máy tính: curl " + webhookUrl;
+                    } else {
+                        errorMsg += "Chi tiết: " + error.message;
+                    }
+                    
+                    alert(errorMsg);
                 }
 
                 setLoading(false);
@@ -557,6 +605,52 @@
                 }
             };
 
+            const testConnection = async () => {
+                if (!webhookUrl || webhookUrl === "https://your-n8n-instance.com/webhook/thu-hoi-tai-san") {
+                    alert("⚠️ Vui lòng nhập Webhook URL trước!");
+                    return;
+                }
+
+                if (webhookUrl.includes("localhost") || webhookUrl.includes("127.0.0.1")) {
+                    alert("❌ Không thể test localhost từ điện thoại!\n\nHãy thay bằng IP máy tính (VD: 192.168.1.100)");
+                    return;
+                }
+
+                setLoading(true);
+                try {
+                    const testPayload = {
+                        test: true,
+                        message: "Test connection from mobile app",
+                        timestamp: new Date().toISOString()
+                    };
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+                    const response = await fetch(webhookUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(testPayload),
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (response.ok) {
+                        alert("✅ Kết nối thành công!\n\nn8n đã nhận được test request.");
+                    } else {
+                        alert(`⚠️ Server phản hồi nhưng có lỗi:\n\nStatus: ${response.status}\nMessage: ${response.statusText}`);
+                    }
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        alert("❌ Timeout!\n\nKhông thể kết nối sau 10 giây.\n\nKiểm tra:\n- n8n có chạy không?\n- URL có đúng không?\n- Cùng mạng WiFi chưa?");
+                    } else {
+                        alert("❌ Không thể kết nối!\n\n" + error.message + "\n\nKiểm tra lại URL và đảm bảo n8n đang chạy.");
+                    }
+                }
+                setLoading(false);
+            };
+
             return (
                 <div className="max-w-md mx-auto p-4 space-y-4 pb-8">
                     {/* Header */}
@@ -578,8 +672,21 @@
                             value={webhookUrl}
                             onChange={(e) => saveWebhookUrl(e.target.value)}
                             className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
-                            placeholder="https://your-n8n.com/webhook/..."
+                            placeholder="http://192.168.1.100:5678/webhook/..."
                         />
+                        <button
+                            onClick={testConnection}
+                            disabled={loading}
+                            className="w-full mt-2 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium"
+                        >
+                            {loading ? "Đang test..." : "🔌 Test kết nối"}
+                        </button>
+                        <div className="mt-2 p-2 bg-yellow-50 rounded border border-yellow-200">
+                            <p className="text-xs text-yellow-800">
+                                ⚠️ <strong>Không dùng localhost!</strong><br/>
+                                Thay bằng IP máy tính (VD: http://192.168.1.100:5678/webhook/thu-hoi-tai-san)
+                            </p>
+                        </div>
                     </div>
 
                     {/* Manual Barcode Input */}
@@ -787,17 +894,46 @@
                     {/* Instructions */}
                     <div className="bg-white rounded-xl shadow-lg p-4">
                         <h3 className="font-semibold text-gray-800 mb-3">💡 Hướng dẫn sử dụng:</h3>
+                        
+                        <div className="mb-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                            <p className="text-sm text-red-800 font-semibold mb-2">
+                                🚨 LỖI KẾT NỐI? ĐỌC ĐÂY!
+                            </p>
+                            <p className="text-sm text-red-700 mb-2">
+                                <strong>Vấn đề:</strong> Không thể dùng <code className="bg-red-100 px-1 rounded">localhost</code> hoặc <code className="bg-red-100 px-1 rounded">127.0.0.1</code> từ điện thoại!
+                            </p>
+                            <p className="text-sm text-red-700 mb-2">
+                                <strong>Giải pháp:</strong> Dùng IP máy tính
+                            </p>
+                            <div className="text-xs text-red-600 space-y-1 mt-2">
+                                <p><strong>Windows:</strong> Mở CMD → gõ <code className="bg-red-100 px-1">ipconfig</code> → tìm "IPv4 Address"</p>
+                                <p><strong>Mac:</strong> System Preferences → Network → xem IP</p>
+                                <p><strong>Linux:</strong> Terminal → <code className="bg-red-100 px-1">hostname -I</code></p>
+                                <p className="mt-2"><strong>VD URL đúng:</strong></p>
+                                <code className="bg-red-100 px-2 py-1 rounded block mt-1">
+                                    http://192.168.1.100:5678/webhook/thu-hoi-tai-san
+                                </code>
+                            </div>
+                        </div>
+                        
                         <ol className="text-sm text-gray-600 space-y-2 list-decimal list-inside">
-                            <li>Nhập Webhook URL từ n8n workflow</li>
-                            <li><strong>Cách 1:</strong> Nhập mã vạch thủ công vào ô input</li>
-                            <li><strong>Cách 2:</strong> Bật camera để quét mã vạch tự động</li>
-                            <li><strong>Cách 3:</strong> Dùng máy quét cầm tay kết nối Bluetooth</li>
-                            <li>Chụp ảnh vật tư cần thu hồi</li>
-                            <li>Nhấn "Gửi dữ liệu" để xử lý trên n8n</li>
+                            <li>Lấy IP máy tính (xem hướng dẫn trên)</li>
+                            <li>Đảm bảo điện thoại và máy tính <strong>cùng WiFi</strong></li>
+                            <li>Nhập URL webhook với IP máy tính</li>
+                            <li>Click "Test kết nối" để kiểm tra</li>
+                            <li>Nhập mã vạch hoặc bật camera quét</li>
+                            <li>Chụp ảnh vật tư</li>
+                            <li>Gửi dữ liệu lên n8n</li>
                         </ol>
-                        <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                            <p className="text-sm text-blue-800">
-                                <strong>💡 Tips:</strong> Nếu camera không quét được, hãy dùng ô nhập thủ công hoặc máy quét mã vạch cầm tay (barcode scanner gun).
+                        
+                        <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                            <p className="text-sm text-green-800">
+                                <strong>✅ Checklist:</strong><br/>
+                                □ n8n đang chạy trên máy tính<br/>
+                                □ Workflow đã Active<br/>
+                                □ Điện thoại và máy tính cùng WiFi<br/>
+                                □ Đã thay localhost bằng IP máy tính<br/>
+                                □ Test connection thành công
                             </p>
                         </div>
                     </div>
