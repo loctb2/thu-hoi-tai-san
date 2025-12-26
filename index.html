@@ -148,29 +148,67 @@
 
             // Camera scanning logic
             useEffect(() => {
-                if (!cameraOn) return;
+                if (!cameraOn) {
+                    // Clear scanner when camera is off
+                    const scannerEl = document.getElementById("scanner");
+                    if (scannerEl) {
+                        scannerEl.innerHTML = `
+                            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #9ca3af; text-align: center; padding: 1rem;">
+                                <div>
+                                    <span style="font-size: 3rem; display: block; margin-bottom: 0.5rem;">📷</span>
+                                    <p>Nhấn "Bật Camera" để quét mã vạch</p>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    return;
+                }
 
                 let stream, detector, rafId, quaggaStarted = false;
                 const scannerEl = document.getElementById("scanner");
 
                 const stopAll = () => {
-                    if (rafId) clearTimeout(rafId);
-                    if (stream) {
-                        stream.getTracks().forEach(track => track.stop());
+                    console.log("Stopping camera...");
+                    
+                    // Clear animation frame
+                    if (rafId) {
+                        clearTimeout(rafId);
+                        rafId = null;
                     }
+                    
+                    // Stop video stream
+                    if (stream) {
+                        stream.getTracks().forEach(track => {
+                            track.stop();
+                            console.log("Track stopped:", track.label);
+                        });
+                        stream = null;
+                    }
+                    
+                    // Stop Quagga
                     if (quaggaStarted) {
                         try {
                             Quagga.stop();
+                            quaggaStarted = false;
+                            console.log("Quagga stopped");
                         } catch (e) {
                             console.log("Quagga stop error:", e);
                         }
                     }
-                    if (scannerEl) scannerEl.innerHTML = "";
+                    
+                    // Clear scanner element completely
+                    if (scannerEl) {
+                        scannerEl.innerHTML = "";
+                        console.log("Scanner cleared");
+                    }
                 };
 
                 // Native BarcodeDetector API (Chrome/Edge)
                 const startNative = async () => {
                     try {
+                        // Clear scanner first
+                        scannerEl.innerHTML = "";
+                        
                         detector = new BarcodeDetector({
                             formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e"]
                         });
@@ -187,9 +225,16 @@
                         const video = document.createElement("video");
                         video.setAttribute("playsinline", "");
                         video.setAttribute("autoplay", "");
+                        video.setAttribute("muted", "");
+                        video.style.width = "100%";
+                        video.style.height = "100%";
+                        video.style.objectFit = "cover";
                         video.srcObject = stream;
-                        await video.play();
+                        
                         scannerEl.appendChild(video);
+                        
+                        await video.play();
+                        console.log("Native camera started");
 
                         // Optimize camera settings
                         const track = stream.getVideoTracks()[0];
@@ -240,6 +285,9 @@
 
                 // Quagga fallback (Safari, Firefox)
                 const startQuagga = () => {
+                    // Clear scanner first
+                    scannerEl.innerHTML = "";
+                    
                     Quagga.init(
                         {
                             inputStream: {
@@ -274,6 +322,7 @@
                             }
                             Quagga.start();
                             quaggaStarted = true;
+                            console.log("Quagga started");
                         }
                     );
 
@@ -292,16 +341,22 @@
                 // Start appropriate scanner
                 try {
                     if (supportsBarcodeDetector) {
+                        console.log("Using native BarcodeDetector");
                         startNative();
                     } else {
+                        console.log("Using Quagga fallback");
                         startQuagga();
                     }
                 } catch (e) {
                     console.error("Scanner start error:", e);
                     alert("Lỗi khi khởi động camera");
+                    setCameraOn(false);
                 }
 
-                return stopAll;
+                return () => {
+                    console.log("Cleanup useEffect");
+                    stopAll();
+                };
             }, [cameraOn, supportsBarcodeDetector]);
 
             const handlePhoto = (e) => {
@@ -432,14 +487,12 @@
                     {/* Scanner */}
                     <div id="scanner-wrapper" className={flashEffect ? "beep-success" : ""}>
                         <div id="scanner">
-                            {!cameraOn && (
-                                <div className="flex items-center justify-center h-full text-gray-400 text-center px-4">
-                                    <div>
-                                        <span className="text-5xl mb-2 block">📷</span>
-                                        <p>Nhấn "Bật Camera" để quét mã vạch</p>
-                                    </div>
+                            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', textAlign: 'center', padding: '1rem'}}>
+                                <div>
+                                    <span style={{fontSize: '3rem', display: 'block', marginBottom: '0.5rem'}}>📷</span>
+                                    <p>Nhấn "Bật Camera" để quét mã vạch</p>
                                 </div>
-                            )}
+                            </div>
                         </div>
                         {cameraOn && (
                             <div className="overlay">
