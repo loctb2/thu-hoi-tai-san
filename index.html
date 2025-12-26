@@ -1,315 +1,253 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thu Hồi Tài Sản</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Thu Hồi Tài Sản</title>
 
-  <!-- Tailwind -->
-  <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.tailwindcss.com"></script>
 
-  <style>
-    body { user-select: none; }
-
-    #scanner-wrapper {
-      position: relative;
-      width: 100%;
-      height: 55vh;
-      background: black;
-      overflow: hidden;
-      border-radius: 12px;
-    }
-
-    #scanner video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    .overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(0,0,0,0.35);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      pointer-events: none;
-    }
-
-    .scan-area {
-      width: 80%;
-      max-width: 320px;
-      height: 160px;
-      border: 2px solid #00ffcc;
-      border-radius: 12px;
-      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
-      position: relative;
-    }
-
-    .scan-line {
-      position: absolute;
-      left: 0;
-      width: 100%;
-      height: 2px;
-      background: red;
-      animation: scan 2s linear infinite;
-    }
-
-    @keyframes scan {
-      from { top: 0; }
-      to { top: calc(100% - 2px); }
-    }
-  </style>
+<style>
+body { user-select:none; }
+#scanner-wrapper {
+  position:relative;
+  width:100%;
+  height:55vh;
+  background:black;
+  border-radius:12px;
+  overflow:hidden;
+}
+#scanner video {
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  filter: brightness(1.2) contrast(1.2) saturate(1.1);
+}
+.overlay {
+  position:absolute;
+  inset:0;
+  background:rgba(0,0,0,.4);
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  pointer-events:none;
+}
+.scan-area {
+  width:80%;
+  max-width:320px;
+  height:160px;
+  border:2px solid #00ffcc;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.45);
+  border-radius:12px;
+  position:relative;
+}
+.scan-line {
+  position:absolute;
+  left:0;
+  width:100%;
+  height:2px;
+  background:red;
+  animation:scan 2s linear infinite;
+}
+@keyframes scan {
+  from{top:0}
+  to{top:calc(100% - 2px)}
+}
+</style>
 </head>
 
 <body class="bg-gray-100">
 <div id="root"></div>
 
-<!-- React -->
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-<!-- Quagga fallback -->
 <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
 
 <script type="text/babel">
-const { useState, useEffect, useRef } = React;
+const {useState,useEffect,useRef} = React;
 
-function App() {
-  const [barcode, setBarcode] = useState("");
-  const [scannedList, setScannedList] = useState([]);
-  const [photo, setPhoto] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
-  const [webhookUrl, setWebhookUrl] = useState(localStorage.getItem("webhookUrl") || "");
-  const [status, setStatus] = useState("");
-  const [cameraOn, setCameraOn] = useState(false);
+function App(){
+  const [barcode,setBarcode] = useState("");
+  const [scannedList,setScannedList] = useState([]);
+  const [cameraOn,setCameraOn] = useState(false);
+  const [photo,setPhoto] = useState(null);
+  const [photoPreview,setPhotoPreview] = useState(null);
+  const [status,setStatus] = useState("");
+  const [webhookUrl,setWebhookUrl] = useState(localStorage.getItem("webhookUrl")||"");
 
-  const lastScanRef = useRef({ value: null, time: 0 });
   const fileInputRef = useRef(null);
+  const lastScanRef = useRef({value:null,time:0});
   const supportsBarcodeDetector = "BarcodeDetector" in window;
 
-  /* ===== CHỐNG QUÉT TRÙNG ===== */
-  const canAcceptCode = (value) => {
+  const canAcceptCode = value => {
     const now = Date.now();
-    if (
-      lastScanRef.current.value === value &&
-      now - lastScanRef.current.time < 2000
-    ) return false;
-
-    lastScanRef.current = { value, time: now };
+    if(lastScanRef.current.value===value && now-lastScanRef.current.time<2000) return false;
+    lastScanRef.current={value,time:now};
     return true;
   };
 
-  /* ===== CAMERA + SCAN ===== */
-  useEffect(() => {
-    if (!cameraOn) return;
+  useEffect(()=>{
+    if(!cameraOn) return;
 
-    let stream;
-    let detector;
-    let rafId;
+    let stream, detector, rafId;
     const scannerEl = document.getElementById("scanner");
 
-    const stopAll = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      if (stream) stream.getTracks().forEach(t => t.stop());
-      if (window.Quagga) try { Quagga.stop(); } catch {}
-      if (scannerEl) scannerEl.innerHTML = "";
+    const stopAll = ()=>{
+      if(rafId) cancelAnimationFrame(rafId);
+      if(stream) stream.getTracks().forEach(t=>t.stop());
+      try{Quagga.stop()}catch{}
+      if(scannerEl) scannerEl.innerHTML="";
     };
 
-    const startNative = async () => {
-      detector = new BarcodeDetector({
-        formats: ["qr_code", "code_128", "ean_13", "ean_8"]
-      });
+    const startNative = async ()=>{
+      detector = new BarcodeDetector({formats:["qr_code","code_128","ean_13","ean_8"]});
 
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
+        video:{
+          facingMode:{ideal:"environment"},
+          width:{ideal:1920},
+          height:{ideal:1080},
+          frameRate:{ideal:30,max:60}
+        }
       });
 
       const video = document.createElement("video");
-      video.setAttribute("playsinline", true);
-      video.srcObject = stream;
+      video.playsInline=true;
+      video.srcObject=stream;
       await video.play();
       scannerEl.appendChild(video);
 
-      const scan = async () => {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      const track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities?.();
+      if(caps){
+        const adv={};
+        if(caps.focusMode?.includes("continuous")) adv.focusMode="continuous";
+        if(caps.exposureMode?.includes("continuous")) adv.exposureMode="continuous";
+        try{ await track.applyConstraints({advanced:[adv]}); }catch{}
+      }
+
+      const scan = async ()=>{
+        if(video.readyState===4){
           const codes = await detector.detect(video);
-          if (codes.length > 0) {
-            const value = codes[0].rawValue;
-            if (canAcceptCode(value)) {
-              setBarcode(value);
-              setScannedList(list => [...list, value]);
+          if(codes.length){
+            const val=codes[0].rawValue;
+            if(canAcceptCode(val)){
+              setBarcode(val);
+              setScannedList(l=>[...l,val]);
             }
           }
         }
-        rafId = requestAnimationFrame(scan);
+        rafId=setTimeout(scan,120);
       };
       scan();
     };
 
-    const startQuagga = () => {
+    const startQuagga = ()=>{
       Quagga.init({
-        inputStream: {
-          type: "LiveStream",
-          target: scannerEl,
-          constraints: { facingMode: "environment" }
-        },
-        decoder: {
-          readers: ["code_128_reader", "ean_reader", "ean_8_reader"]
-        }
-      }, err => {
-        if (!err) Quagga.start();
-      });
+        inputStream:{type:"LiveStream",target:scannerEl,constraints:{facingMode:"environment"}},
+        decoder:{readers:["code_128_reader","ean_reader","ean_8_reader"]}
+      },err=>{ if(!err) Quagga.start(); });
 
-      Quagga.onDetected(res => {
-        const value = res.codeResult.code;
-        if (canAcceptCode(value)) {
-          setBarcode(value);
-          setScannedList(list => [...list, value]);
+      Quagga.onDetected(res=>{
+        const val=res.codeResult.code;
+        if(canAcceptCode(val)){
+          setBarcode(val);
+          setScannedList(l=>[...l,val]);
         }
       });
     };
 
-    try {
+    try{
       supportsBarcodeDetector ? startNative() : startQuagga();
-    } catch (e) {
-      alert("Không thể mở camera. Kiểm tra quyền trình duyệt.");
+    }catch(e){
+      alert("Không thể mở camera");
     }
 
     return stopAll;
-  }, [cameraOn]);
+  },[cameraOn]);
 
-  /* ===== PHOTO ===== */
-  const handlePhoto = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setPhoto(file);
-    const r = new FileReader();
-    r.onload = () => setPhotoPreview(r.result);
-    r.readAsDataURL(file);
+  const handlePhoto=e=>{
+    const f=e.target.files[0];
+    if(!f) return;
+    setPhoto(f);
+    const r=new FileReader();
+    r.onload=()=>setPhotoPreview(r.result);
+    r.readAsDataURL(f);
   };
 
-  /* ===== SEND N8N ===== */
-  const sendToN8n = async () => {
-    if (!scannedList.length && !photo) {
-      alert("Cần quét mã hoặc chụp ảnh");
-      return;
-    }
+  const sendToN8n=async()=>{
+    if(!scannedList.length && !photo){ alert("Chưa có dữ liệu"); return; }
 
-    let photoBase64 = null;
-    if (photo) {
-      photoBase64 = await new Promise(res => {
-        const r = new FileReader();
-        r.onload = () => res(r.result);
-        r.readAsDataURL(photo);
+    let photoBase64=null;
+    if(photo){
+      photoBase64=await new Promise(r=>{
+        const fr=new FileReader();
+        fr.onload=()=>r(fr.result);
+        fr.readAsDataURL(photo);
       });
     }
 
-    const payload = {
-      barcodes: scannedList,
-      photo: photoBase64,
-      timestamp: new Date().toISOString(),
-      device: navigator.userAgent
-    };
-
-    const r = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+    await fetch(webhookUrl,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        barcodes:scannedList,
+        photo:photoBase64,
+        timestamp:new Date().toISOString(),
+        device:navigator.userAgent
+      })
     });
 
-    setStatus(r.ok ? "success" : "error");
-    setTimeout(() => setStatus(""), 3000);
+    setStatus("success");
+    setTimeout(()=>setStatus(""),3000);
   };
 
   return (
-    <div className="max-w-md mx-auto p-4 space-y-4">
-      <h1 className="text-xl font-bold text-center">📦 Thu Hồi Tài Sản</h1>
+  <div className="max-w-md mx-auto p-4 space-y-3">
+    <h1 className="text-xl font-bold text-center">📦 Thu Hồi Tài Sản</h1>
 
-      <input
-        className="w-full p-2 border rounded"
-        placeholder="Webhook URL n8n"
-        value={webhookUrl}
-        onChange={e => {
-          setWebhookUrl(e.target.value);
-          localStorage.setItem("webhookUrl", e.target.value);
-        }}
-      />
+    <input className="w-full p-2 border rounded"
+      placeholder="Webhook URL n8n"
+      value={webhookUrl}
+      onChange={e=>{setWebhookUrl(e.target.value);localStorage.setItem("webhookUrl",e.target.value);}}
+    />
 
-      <input
-        className="w-full p-2 border rounded"
-        placeholder="Mã vừa quét"
-        value={barcode}
-        readOnly
-      />
+    <button
+      onClick={()=>setCameraOn(v=>!v)}
+      className={`w-full p-3 rounded text-white font-bold ${cameraOn?"bg-red-600":"bg-green-600"}`}>
+      {cameraOn?"⏸ Tắt camera":"▶ Bật camera quét"}
+    </button>
 
-      <button
-        onClick={() => setCameraOn(v => !v)}
-        className={`w-full p-3 rounded font-semibold text-white ${
-          cameraOn ? "bg-red-600" : "bg-green-600"
-        }`}
-      >
-        {cameraOn ? "⏸ Tắt camera" : "▶ Bật camera quét"}
-      </button>
-
-      <div id="scanner-wrapper">
-        <div id="scanner"></div>
-        <div className="overlay">
-          <div className="scan-area">
-            <div className="scan-line"></div>
-          </div>
-        </div>
+    <div id="scanner-wrapper">
+      <div id="scanner"></div>
+      <div className="overlay">
+        <div className="scan-area"><div className="scan-line"></div></div>
       </div>
-
-      {scannedList.length > 0 && (
-        <div className="bg-white p-2 rounded border text-sm max-h-40 overflow-auto">
-          <p className="font-semibold mb-1">📋 Đã quét:</p>
-          {scannedList.map((c, i) => (
-            <div key={i} className="border-b py-1">{c}</div>
-          ))}
-        </div>
-      )}
-
-      <button
-        onClick={() => setScannedList([])}
-        className="w-full bg-yellow-500 text-white p-2 rounded"
-      >
-        ♻️ Xóa danh sách
-      </button>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handlePhoto}
-      />
-
-      <button
-        onClick={() => fileInputRef.current.click()}
-        className="w-full bg-gray-200 p-2 rounded"
-      >
-        📷 Chụp ảnh vật tư
-      </button>
-
-      {photoPreview && <img src={photoPreview} className="rounded border" />}
-
-      <button
-        onClick={sendToN8n}
-        className="w-full bg-indigo-600 text-white p-3 rounded font-bold"
-      >
-        🚀 Gửi lên n8n
-      </button>
-
-      {status === "success" && <p className="text-green-600">✔ Gửi thành công</p>}
-      {status === "error" && <p className="text-red-600">✖ Gửi lỗi</p>}
     </div>
+
+    {scannedList.length>0 &&
+      <div className="bg-white p-2 rounded text-sm max-h-40 overflow-auto">
+        <b>📋 Đã quét:</b>
+        {scannedList.map((c,i)=><div key={i}>{c}</div>)}
+      </div>
+    }
+
+    <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhoto}/>
+    <button onClick={()=>fileInputRef.current.click()} className="w-full bg-gray-200 p-2 rounded">📷 Chụp ảnh</button>
+
+    {photoPreview && <img src={photoPreview} className="rounded border" />}
+
+    <button onClick={sendToN8n} className="w-full bg-indigo-600 text-white p-3 rounded font-bold">
+      🚀 Gửi lên n8n
+    </button>
+
+    {status==="success" && <p className="text-green-600 text-center">✔ Gửi thành công</p>}
+  </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
 </html>
