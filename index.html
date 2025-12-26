@@ -70,7 +70,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-<!-- Quagga fallback -->
+<!-- Quagga (barcode fallback) -->
 <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
 
 <script type="text/babel">
@@ -93,15 +93,20 @@ function App() {
   useEffect(() => {
     if (!cameraOn) return;
 
-    let stream;
-    let detector;
-    let rafId;
+    let stream = null;
+    let detector = null;
+    let timerId = null;
     const scannerEl = document.getElementById("scanner");
 
     const stopAll = () => {
-      if (rafId) cancelAnimationFrame(rafId);
+      if (timerId) clearTimeout(timerId);
       if (stream) stream.getTracks().forEach(t => t.stop());
-      if (window.Quagga) try { Quagga.stop(); } catch {}
+      if (window.Quagga) {
+        try {
+          Quagga.offDetected();
+          Quagga.stop();
+        } catch {}
+      }
       if (scannerEl) scannerEl.innerHTML = "";
     };
 
@@ -112,7 +117,7 @@ function App() {
 
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: "environment",
+          facingMode: { ideal: "environment" },
           width: { ideal: 1280 },
           height: { ideal: 720 }
         }
@@ -127,15 +132,16 @@ function App() {
       const scan = async () => {
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
           const codes = await detector.detect(video);
-          if (codes.length) {
+          if (codes.length > 0) {
             setBarcode(codes[0].rawValue);
             setCameraOn(false);
             stopAll();
             return;
           }
         }
-        rafId = requestAnimationFrame(scan);
+        timerId = setTimeout(scan, 120);
       };
+
       scan();
     };
 
@@ -168,14 +174,22 @@ function App() {
         stopAll();
       });
     };
-try {
-  supportsBarcodeDetector ? startNative() : startQuagga();
-} catch (err) {
-  console.error("Camera error:", err);
-  alert("Không thể mở camera. Vui lòng kiểm tra quyền hoặc trình duyệt.");
-}
-return stopAll;
-    
+
+    (async () => {
+      try {
+        if (supportsBarcodeDetector) {
+          await startNative();
+        } else {
+          startQuagga();
+        }
+      } catch (err) {
+        console.error("Camera error:", err);
+        alert("Không thể mở camera. Hãy kiểm tra quyền camera và HTTPS.");
+        setCameraOn(false);
+      }
+    })();
+
+    return stopAll;
   }, [cameraOn]);
 
   /* ===== PHOTO ===== */
@@ -242,14 +256,14 @@ return stopAll;
         onChange={e => setBarcode(e.target.value)}
       />
 
-      <!-- NÚT BẬT / TẮT CAMERA -->
+      {/* NÚT BẬT / TẮT CAMERA */}
       <button
         onClick={() => setCameraOn(v => !v)}
         className={`w-full p-3 rounded font-semibold text-white ${
           cameraOn ? "bg-red-600" : "bg-green-600"
         }`}
       >
-        {cameraOn ? "⏸ Tắt camera quét QR" : "▶ Bật camera quét QR"}
+        {cameraOn ? "⏸ Tắt camera quét" : "▶ Bật camera quét QR / Barcode"}
       </button>
 
       <div id="scanner-wrapper">
@@ -277,7 +291,9 @@ return stopAll;
         📷 Chụp ảnh vật tư
       </button>
 
-      {photoPreview && <img src={photoPreview} className="rounded border" />}
+      {photoPreview && (
+        <img src={photoPreview} className="rounded border" />
+      )}
 
       <button
         onClick={sendToN8n}
@@ -286,8 +302,12 @@ return stopAll;
         🚀 Gửi lên n8n
       </button>
 
-      {status === "success" && <p className="text-green-600">✔ Gửi thành công</p>}
-      {status === "error" && <p className="text-red-600">✖ Gửi lỗi</p>}
+      {status === "success" && (
+        <p className="text-green-600">✔ Gửi thành công</p>
+      )}
+      {status === "error" && (
+        <p className="text-red-600">✖ Gửi lỗi</p>
+      )}
     </div>
   );
 }
