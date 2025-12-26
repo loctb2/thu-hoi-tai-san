@@ -15,18 +15,21 @@ body {
   background: #fff;
   padding: 20px;
   border-radius: 12px;
-  max-width: 400px;
+  max-width: 420px;
   margin: auto;
   box-shadow: 0 10px 25px rgba(0,0,0,.1);
 }
-button {
+input, button {
   width: 100%;
-  padding: 12px;
-  margin-top: 10px;
-  border: none;
+  padding: 10px;
+  margin-top: 8px;
   border-radius: 8px;
+  border: 1px solid #ccc;
+}
+button {
   background: #2563eb;
   color: white;
+  border: none;
   font-size: 16px;
 }
 button:disabled {
@@ -41,6 +44,10 @@ img {
   margin-top: 10px;
   font-size: 14px;
 }
+.small {
+  font-size: 12px;
+  color: #666;
+}
 </style>
 </head>
 
@@ -48,9 +55,16 @@ img {
 <div class="card">
   <h2>📦 Thu hồi tài sản</h2>
 
+  <!-- WEBHOOK URL -->
+  <label>🔗 Webhook n8n (Production URL)</label>
+  <input type="text" id="webhookUrl" placeholder="https://n8n.domain/webhook/asset-capture">
+  <div class="small">Chỉ cần nhập 1 lần</div>
+
+  <!-- IMAGE INPUT -->
   <input type="file" id="imageInput" accept="image/*" capture="environment">
   <img id="preview" />
 
+  <!-- SEND -->
   <button id="sendBtn" onclick="sendImage()">Gửi ảnh</button>
 
   <div class="status" id="status"></div>
@@ -59,8 +73,20 @@ img {
 <script>
 let base64Image = "";
 
+// Load webhook from localStorage
+const webhookInput = document.getElementById("webhookUrl");
+webhookInput.value = localStorage.getItem("webhookUrl") || "";
+
+// Save webhook when changed
+webhookInput.addEventListener("change", () => {
+  localStorage.setItem("webhookUrl", webhookInput.value.trim());
+});
+
+// Preview image
 document.getElementById("imageInput").addEventListener("change", function(e) {
   const file = e.target.files[0];
+  if (!file) return;
+
   const reader = new FileReader();
   reader.onloadend = () => {
     base64Image = reader.result;
@@ -70,26 +96,44 @@ document.getElementById("imageInput").addEventListener("change", function(e) {
 });
 
 async function sendImage() {
-  if (!base64Image) {
-    alert("Vui lòng chụp ảnh");
+  const webhookUrl = webhookInput.value.trim();
+  const status = document.getElementById("status");
+  const btn = document.getElementById("sendBtn");
+
+  if (!webhookUrl) {
+    alert("Vui lòng nhập URL webhook n8n");
     return;
   }
 
-  document.getElementById("status").innerText = "⏳ Đang gửi ảnh...";
-  document.getElementById("sendBtn").disabled = true;
+  if (!base64Image) {
+    alert("Vui lòng chọn hoặc chụp ảnh");
+    return;
+  }
 
-  await fetch("https://N8N_DOMAIN/webhook/asset-capture?token=SECRET", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      image: base64Image,
-      user: "NV001",
-      location: "Kho A"
-    })
-  });
+  btn.disabled = true;
+  status.innerText = "⏳ Đang gửi ảnh...";
 
-  document.getElementById("status").innerText = "✅ Đã gửi – đang nhận diện";
-  document.getElementById("sendBtn").disabled = false;
+  try {
+    const res = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image: base64Image,
+        user: "NV001",
+        location: "Kho A"
+      })
+    });
+
+    if (!res.ok) throw new Error("Server không phản hồi");
+
+    status.innerText = "✅ Gửi thành công – AI đang xử lý";
+  } catch (err) {
+    console.error(err);
+    status.innerText = "❌ Lỗi kết nối webhook";
+    alert("Không gửi được ảnh. Kiểm tra URL webhook & CORS.");
+  }
+
+  btn.disabled = false;
 }
 </script>
 </body>
