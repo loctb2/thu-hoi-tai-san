@@ -531,17 +531,17 @@
                         {cameraOn ? "⏸ Tắt Camera Quét" : "▶️ Bật Camera Quét Mã Tự Động"}
                     </button>
 
-                    {/* Scanner */}
-                    <div id="scanner-wrapper" className={flashEffect ? "beep-success" : ""}>
-                        <div id="scanner">
-                            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', textAlign: 'center', padding: '1rem'}}>
-                                <div>
-                                    <span style={{fontSize: '3rem', display: 'block', marginBottom: '0.5rem'}}>📷</span>
-                                    <p>Nhấn "Bật Camera" để quét mã vạch</p>
+                    {/* Scanner - Only show when camera is on */}
+                    {cameraOn && (
+                        <div id="scanner-wrapper" className={flashEffect ? "beep-success" : ""}>
+                            <div id="scanner">
+                                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', textAlign: 'center', padding: '1rem'}}>
+                                    <div>
+                                        <span style={{fontSize: '3rem', display: 'block', marginBottom: '0.5rem'}}>📷</span>
+                                        <p>Đang khởi động camera...</p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        {cameraOn && (
                             <div className="overlay">
                                 <div className="scan-area">
                                     <div className="scan-line"></div>
@@ -551,8 +551,8 @@
                                     <div className="corner corner-br"></div>
                                 </div>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
                     {/* Scanned List */}
                     {scannedList.length > 0 && (
