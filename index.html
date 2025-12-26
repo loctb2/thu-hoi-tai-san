@@ -28,7 +28,7 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            filter: brightness(1.1) contrast(1.1);
+            /* Remove filters for clearer image */
         }
         .overlay {
             position: absolute;
@@ -105,10 +105,12 @@
                 localStorage.getItem("webhookUrl") || "https://your-n8n-instance.com/webhook/thu-hoi-tai-san"
             );
             const [flashEffect, setFlashEffect] = useState(false);
+            const [torch, setTorch] = useState(false);
 
             const fileInputRef = useRef(null);
             const lastScanRef = useRef({ value: null, time: 0 });
             const audioContextRef = useRef(null);
+            const videoTrackRef = useRef(null);
 
             // Check if browser supports native BarcodeDetector
             const supportsBarcodeDetector = "BarcodeDetector" in window;
@@ -213,12 +215,17 @@
                             formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e"]
                         });
 
+                        // Request high quality camera with optimal settings
                         stream = await navigator.mediaDevices.getUserMedia({
                             video: {
-                                facingMode: { ideal: "environment" },
-                                width: { ideal: 1920, max: 1920 },
-                                height: { ideal: 1080, max: 1080 },
-                                frameRate: { ideal: 30 }
+                                facingMode: "environment",
+                                width: { min: 640, ideal: 1920, max: 4096 },
+                                height: { min: 480, ideal: 1080, max: 2160 },
+                                aspectRatio: { ideal: 16/9 },
+                                frameRate: { min: 15, ideal: 30, max: 60 },
+                                focusMode: "continuous",
+                                exposureMode: "continuous",
+                                whiteBalanceMode: "continuous"
                             }
                         });
 
@@ -236,23 +243,73 @@
                         await video.play();
                         console.log("Native camera started");
 
-                        // Optimize camera settings
+                        // Save track reference for controls
                         const track = stream.getVideoTracks()[0];
+                        videoTrackRef.current = track;
                         const capabilities = track.getCapabilities?.();
+                        const settings = track.getSettings();
+                        
+                        console.log("Camera capabilities:", capabilities);
+                        console.log("Current settings:", settings);
+                        
                         if (capabilities) {
-                            const constraints = {};
-                            if (capabilities.focusMode?.includes("continuous")) {
-                                constraints.focusMode = "continuous";
-                            }
-                            if (capabilities.exposureMode?.includes("continuous")) {
-                                constraints.exposureMode = "continuous";
-                            }
-                            if (Object.keys(constraints).length > 0) {
-                                try {
-                                    await track.applyConstraints({ advanced: [constraints] });
-                                } catch (e) {
-                                    console.log("Camera constraints error:", e);
+                            try {
+                                const advancedConstraints = {
+                                    advanced: []
+                                };
+                                
+                                // Focus optimization
+                                if (capabilities.focusMode) {
+                                    if (capabilities.focusMode.includes("continuous")) {
+                                        advancedConstraints.advanced.push({ focusMode: "continuous" });
+                                    } else if (capabilities.focusMode.includes("manual")) {
+                                        // For manual focus, set to infinity for barcode scanning
+                                        if (capabilities.focusDistance) {
+                                            const maxDistance = capabilities.focusDistance.max;
+                                            advancedConstraints.advanced.push({ focusDistance: maxDistance });
+                                        }
+                                    }
                                 }
+                                
+                                // Exposure optimization
+                                if (capabilities.exposureMode?.includes("continuous")) {
+                                    advancedConstraints.advanced.push({ exposureMode: "continuous" });
+                                }
+                                
+                                // White balance
+                                if (capabilities.whiteBalanceMode?.includes("continuous")) {
+                                    advancedConstraints.advanced.push({ whiteBalanceMode: "continuous" });
+                                }
+                                
+                                // Brightness and contrast
+                                if (capabilities.brightness) {
+                                    const midBrightness = (capabilities.brightness.min + capabilities.brightness.max) / 2;
+                                    advancedConstraints.advanced.push({ brightness: midBrightness + 10 });
+                                }
+                                
+                                if (capabilities.contrast) {
+                                    const midContrast = (capabilities.contrast.min + capabilities.contrast.max) / 2;
+                                    advancedConstraints.advanced.push({ contrast: midContrast + 10 });
+                                }
+                                
+                                // Sharpness
+                                if (capabilities.sharpness) {
+                                    const maxSharpness = capabilities.sharpness.max;
+                                    advancedConstraints.advanced.push({ sharpness: maxSharpness });
+                                }
+                                
+                                // Apply all constraints
+                                if (advancedConstraints.advanced.length > 0) {
+                                    await track.applyConstraints(advancedConstraints);
+                                    console.log("Applied advanced constraints:", advancedConstraints);
+                                }
+                                
+                                // Log final settings
+                                const finalSettings = track.getSettings();
+                                console.log("Final settings:", finalSettings);
+                                
+                            } catch (e) {
+                                console.log("Camera constraints error:", e);
                             }
                         }
 
@@ -295,8 +352,14 @@
                                 target: scannerEl,
                                 constraints: {
                                     facingMode: "environment",
-                                    width: { ideal: 1280 },
-                                    height: { ideal: 720 }
+                                    width: { min: 640, ideal: 1920, max: 4096 },
+                                    height: { min: 480, ideal: 1080, max: 2160 },
+                                    aspectRatio: 16/9,
+                                    focusMode: "continuous",
+                                    advanced: [
+                                        { focusMode: "continuous" },
+                                        { exposureMode: "continuous" }
+                                    ]
                                 }
                             },
                             decoder: {
@@ -306,12 +369,21 @@
                                     "ean_8_reader",
                                     "code_39_reader",
                                     "upc_reader"
-                                ]
+                                ],
+                                multiple: false
                             },
                             locate: true,
                             locator: {
-                                patchSize: "medium",
-                                halfSample: true
+                                patchSize: "large",
+                                halfSample: false
+                            },
+                            numOfWorkers: 4,
+                            frequency: 10,
+                            debug: {
+                                drawBoundingBox: false,
+                                showFrequency: false,
+                                drawScanline: false,
+                                showPattern: false
                             }
                         },
                         (err) => {
@@ -436,6 +508,44 @@
                 setTimeout(() => setStatus(""), 3000);
             };
 
+            const toggleTorch = async () => {
+                const track = videoTrackRef.current;
+                if (!track) return;
+                
+                const capabilities = track.getCapabilities?.();
+                if (capabilities?.torch) {
+                    try {
+                        await track.applyConstraints({
+                            advanced: [{ torch: !torch }]
+                        });
+                        setTorch(!torch);
+                    } catch (e) {
+                        console.log("Torch error:", e);
+                        alert("Điện thoại này không hỗ trợ đèn flash");
+                    }
+                } else {
+                    alert("Điện thoại này không hỗ trợ đèn flash");
+                }
+            };
+
+            const tapToFocus = async (e) => {
+                const track = videoTrackRef.current;
+                if (!track) return;
+                
+                const capabilities = track.getCapabilities?.();
+                if (capabilities?.focusMode?.includes("manual")) {
+                    try {
+                        // Force refocus
+                        await track.applyConstraints({
+                            advanced: [{ focusMode: "continuous" }]
+                        });
+                        console.log("Refocused");
+                    } catch (err) {
+                        console.log("Focus error:", err);
+                    }
+                }
+            };
+
             const removeBarcode = (index) => {
                 setScannedList(prev => prev.filter((_, i) => i !== index));
             };
@@ -533,24 +643,50 @@
 
                     {/* Scanner - Only show when camera is on */}
                     {cameraOn && (
-                        <div id="scanner-wrapper" className={flashEffect ? "beep-success" : ""}>
-                            <div id="scanner">
-                                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', textAlign: 'center', padding: '1rem'}}>
-                                    <div>
-                                        <span style={{fontSize: '3rem', display: 'block', marginBottom: '0.5rem'}}>📷</span>
-                                        <p>Đang khởi động camera...</p>
+                        <div>
+                            <div id="scanner-wrapper" className={flashEffect ? "beep-success" : ""} onClick={tapToFocus}>
+                                <div id="scanner">
+                                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', textAlign: 'center', padding: '1rem'}}>
+                                        <div>
+                                            <span style={{fontSize: '3rem', display: 'block', marginBottom: '0.5rem'}}>📷</span>
+                                            <p>Đang khởi động camera...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="overlay">
+                                    <div className="scan-area">
+                                        <div className="scan-line"></div>
+                                        <div className="corner corner-tl"></div>
+                                        <div className="corner corner-tr"></div>
+                                        <div className="corner corner-bl"></div>
+                                        <div className="corner corner-br"></div>
                                     </div>
                                 </div>
                             </div>
-                            <div className="overlay">
-                                <div className="scan-area">
-                                    <div className="scan-line"></div>
-                                    <div className="corner corner-tl"></div>
-                                    <div className="corner corner-tr"></div>
-                                    <div className="corner corner-bl"></div>
-                                    <div className="corner corner-br"></div>
-                                </div>
+                            
+                            {/* Camera Controls */}
+                            <div className="flex gap-2 mt-2">
+                                <button
+                                    onClick={toggleTorch}
+                                    className={`flex-1 p-3 rounded-lg font-medium ${
+                                        torch 
+                                            ? "bg-yellow-500 text-white" 
+                                            : "bg-gray-200 text-gray-700"
+                                    }`}
+                                >
+                                    {torch ? "🔦 Tắt đèn" : "💡 Bật đèn flash"}
+                                </button>
+                                <button
+                                    onClick={tapToFocus}
+                                    className="flex-1 p-3 rounded-lg font-medium bg-blue-500 text-white"
+                                >
+                                    🎯 Lấy nét lại
+                                </button>
                             </div>
+                            
+                            <p className="text-xs text-gray-500 text-center mt-2">
+                                💡 Nhấn vào màn hình camera để lấy nét | Dùng đèn flash nếu thiếu sáng
+                            </p>
                         </div>
                     )}
 
