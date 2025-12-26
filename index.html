@@ -29,7 +29,7 @@
     .overlay {
       position: absolute;
       inset: 0;
-      background: rgba(0,0,0,0.4);
+      background: rgba(0,0,0,0.35);
       display: flex;
       justify-content: center;
       align-items: center;
@@ -37,13 +37,13 @@
     }
 
     .scan-area {
-      position: relative;
       width: 80%;
       max-width: 320px;
       height: 160px;
       border: 2px solid #00ffcc;
-      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
       border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+      position: relative;
     }
 
     .scan-line {
@@ -70,7 +70,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-<!-- Quagga (barcode fallback) -->
+<!-- Quagga fallback -->
 <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
 
 <script type="text/babel">
@@ -78,35 +78,42 @@ const { useState, useEffect, useRef } = React;
 
 function App() {
   const [barcode, setBarcode] = useState("");
+  const [scannedList, setScannedList] = useState([]);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [webhookUrl, setWebhookUrl] = useState(
-    localStorage.getItem("webhookUrl") || ""
-  );
+  const [webhookUrl, setWebhookUrl] = useState(localStorage.getItem("webhookUrl") || "");
   const [status, setStatus] = useState("");
   const [cameraOn, setCameraOn] = useState(false);
 
+  const lastScanRef = useRef({ value: null, time: 0 });
   const fileInputRef = useRef(null);
   const supportsBarcodeDetector = "BarcodeDetector" in window;
+
+  /* ===== CHỐNG QUÉT TRÙNG ===== */
+  const canAcceptCode = (value) => {
+    const now = Date.now();
+    if (
+      lastScanRef.current.value === value &&
+      now - lastScanRef.current.time < 2000
+    ) return false;
+
+    lastScanRef.current = { value, time: now };
+    return true;
+  };
 
   /* ===== CAMERA + SCAN ===== */
   useEffect(() => {
     if (!cameraOn) return;
 
-    let stream = null;
-    let detector = null;
-    let timerId = null;
+    let stream;
+    let detector;
+    let rafId;
     const scannerEl = document.getElementById("scanner");
 
     const stopAll = () => {
-      if (timerId) clearTimeout(timerId);
+      if (rafId) cancelAnimationFrame(rafId);
       if (stream) stream.getTracks().forEach(t => t.stop());
-      if (window.Quagga) {
-        try {
-          Quagga.offDetected();
-          Quagga.stop();
-        } catch {}
-      }
+      if (window.Quagga) try { Quagga.stop(); } catch {}
       if (scannerEl) scannerEl.innerHTML = "";
     };
 
@@ -116,11 +123,7 @@ function App() {
       });
 
       stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
+        video: { facingMode: "environment" }
       });
 
       const video = document.createElement("video");
@@ -133,15 +136,15 @@ function App() {
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
           const codes = await detector.detect(video);
           if (codes.length > 0) {
-            setBarcode(codes[0].rawValue);
-            setCameraOn(false);
-            stopAll();
-            return;
+            const value = codes[0].rawValue;
+            if (canAcceptCode(value)) {
+              setBarcode(value);
+              setScannedList(list => [...list, value]);
+            }
           }
         }
-        timerId = setTimeout(scan, 120);
+        rafId = requestAnimationFrame(scan);
       };
-
       scan();
     };
 
@@ -150,44 +153,29 @@ function App() {
         inputStream: {
           type: "LiveStream",
           target: scannerEl,
-          constraints: {
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
+          constraints: { facingMode: "environment" }
         },
-        locator: { halfSample: false },
         decoder: {
-          readers: [
-            "code_128_reader",
-            "ean_reader",
-            "ean_8_reader"
-          ]
+          readers: ["code_128_reader", "ean_reader", "ean_8_reader"]
         }
       }, err => {
         if (!err) Quagga.start();
       });
 
       Quagga.onDetected(res => {
-        setBarcode(res.codeResult.code);
-        setCameraOn(false);
-        stopAll();
+        const value = res.codeResult.code;
+        if (canAcceptCode(value)) {
+          setBarcode(value);
+          setScannedList(list => [...list, value]);
+        }
       });
     };
 
-    (async () => {
-      try {
-        if (supportsBarcodeDetector) {
-          await startNative();
-        } else {
-          startQuagga();
-        }
-      } catch (err) {
-        console.error("Camera error:", err);
-        alert("Không thể mở camera. Hãy kiểm tra quyền camera và HTTPS.");
-        setCameraOn(false);
-      }
-    })();
+    try {
+      supportsBarcodeDetector ? startNative() : startQuagga();
+    } catch (e) {
+      alert("Không thể mở camera. Kiểm tra quyền trình duyệt.");
+    }
 
     return stopAll;
   }, [cameraOn]);
@@ -204,8 +192,8 @@ function App() {
 
   /* ===== SEND N8N ===== */
   const sendToN8n = async () => {
-    if (!barcode && !photo) {
-      alert("Cần QR/Barcode hoặc Ảnh");
+    if (!scannedList.length && !photo) {
+      alert("Cần quét mã hoặc chụp ảnh");
       return;
     }
 
@@ -219,7 +207,7 @@ function App() {
     }
 
     const payload = {
-      barcode: barcode || null,
+      barcodes: scannedList,
       photo: photoBase64,
       timestamp: new Date().toISOString(),
       device: navigator.userAgent
@@ -251,19 +239,18 @@ function App() {
 
       <input
         className="w-full p-2 border rounded"
-        placeholder="QR / Barcode"
+        placeholder="Mã vừa quét"
         value={barcode}
-        onChange={e => setBarcode(e.target.value)}
+        readOnly
       />
 
-      {/* NÚT BẬT / TẮT CAMERA */}
       <button
         onClick={() => setCameraOn(v => !v)}
         className={`w-full p-3 rounded font-semibold text-white ${
           cameraOn ? "bg-red-600" : "bg-green-600"
         }`}
       >
-        {cameraOn ? "⏸ Tắt camera quét" : "▶ Bật camera quét QR / Barcode"}
+        {cameraOn ? "⏸ Tắt camera" : "▶ Bật camera quét"}
       </button>
 
       <div id="scanner-wrapper">
@@ -274,6 +261,22 @@ function App() {
           </div>
         </div>
       </div>
+
+      {scannedList.length > 0 && (
+        <div className="bg-white p-2 rounded border text-sm max-h-40 overflow-auto">
+          <p className="font-semibold mb-1">📋 Đã quét:</p>
+          {scannedList.map((c, i) => (
+            <div key={i} className="border-b py-1">{c}</div>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={() => setScannedList([])}
+        className="w-full bg-yellow-500 text-white p-2 rounded"
+      >
+        ♻️ Xóa danh sách
+      </button>
 
       <input
         ref={fileInputRef}
@@ -291,9 +294,7 @@ function App() {
         📷 Chụp ảnh vật tư
       </button>
 
-      {photoPreview && (
-        <img src={photoPreview} className="rounded border" />
-      )}
+      {photoPreview && <img src={photoPreview} className="rounded border" />}
 
       <button
         onClick={sendToN8n}
@@ -302,12 +303,8 @@ function App() {
         🚀 Gửi lên n8n
       </button>
 
-      {status === "success" && (
-        <p className="text-green-600">✔ Gửi thành công</p>
-      )}
-      {status === "error" && (
-        <p className="text-red-600">✖ Gửi lỗi</p>
-      )}
+      {status === "success" && <p className="text-green-600">✔ Gửi thành công</p>}
+      {status === "error" && <p className="text-red-600">✖ Gửi lỗi</p>}
     </div>
   );
 }
